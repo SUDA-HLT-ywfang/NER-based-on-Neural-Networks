@@ -1,7 +1,6 @@
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch
-from model.lstm import *
 
 
 class Encoder(nn.Module):

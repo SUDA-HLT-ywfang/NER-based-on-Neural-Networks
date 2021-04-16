@@ -1,7 +1,8 @@
-import torch
-import torch.nn as nn
-import torch.autograd as autograd
 import pickle
+
+import torch
+import torch.autograd as autograd
+import torch.nn as nn
 
 START = -2
 STOP = -1
@@ -85,7 +86,6 @@ class CRF(nn.Module):
         return gold_scores
 
     def neg_log_likelihood_loss(self, emit, mask, tags):
-        # emit = emit.double()    # 为了和局部标注统一，可以加上这句，提高精度，减少误差
         all_score, temp = self._get_PZ(emit, mask)
         gold_score = self._score_sentence(temp, mask, tags)
         return all_score - gold_score
@@ -98,8 +98,8 @@ class CRF(nn.Module):
         batch_size, sent_length, label_size = feats.shape
         length_mask = mask.sum(dim=1).view(batch_size, 1)
         mask = mask.transpose(1,0)
-        # reverse_mask = (1 - mask.long()).bool()     # 适用于pytorch==1.3
-        reverse_mask = (1 - mask.long()).byte()     # 适用于pytorch==1.1
+        reverse_mask = (1 - mask.long()).bool()     # 适用于pytorch==1.3
+        # reverse_mask = (1 - mask.long()).byte()     # 适用于pytorch==1.1
         feats = feats.transpose(1,0) # sent_length, batch_size, label_size
         full_trans = self.transitions.unsqueeze(0).expand(batch_size, label_size, label_size)
         init_var = full_trans[:, START, :].view(batch_size, label_size)

@@ -4,7 +4,7 @@
 import torch
 from torch.utils import data
 import unicodedata
-from pytorch_transformers import BertTokenizer
+from transformers import BertTokenizer
 
 
 class BertDataSet(data.Dataset):
