@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.utils.data as Data
 from torch.nn.utils.rnn import pad_sequence
-
+from torch.nn.functional import pad
 
 class TensorDataSet(Data.Dataset):
     def __init__(self, *data):
@@ -18,12 +18,60 @@ class TensorDataSet(Data.Dataset):
 
 def collate_fn(data):
     batch = zip(*data)
-    return tuple([torch.tensor(x) if len(x[0].size()) < 1 else pad_sequence(x, True) for x in batch])
+    batch_content_list = []
+    for x in batch:
+        sample = x[0]
+        if len(sample.size()) < 1: # for example, text classfication label
+            batch_content_list.append(torch.tensor(x))
+        elif len(sample.shape) == 1 or sample.nelement() == 0: # tensor with one dimension OR empty tensor 
+            batch_content_list.append(pad_sequence(x, True))
+        elif len(sample.shape) == 2: # 二维tensor
+            # find max sent length
+            max_width, max_hight = 0, 0
+            for sam in x:
+                if sam.shape[0] >= max_hight:
+                    max_hight = sam.shape[0]
+                if sam.shape[1] >= max_width:
+                    max_width = sam.shape[1]
+            # padding single tensor
+            temp = []
+            for i in range(len(x)):
+                sam = x[i]
+                pad_2d_shape = (0, max_width-sam.shape[1], 0, max_hight-sam.shape[0])
+                pad_sam = pad(sam, pad_2d_shape, "constant", 0)
+                temp.append(pad_sam)
+            # padding to batch
+            batch_content_list.append(pad_sequence(temp, True))
+    return tuple(batch_content_list)
 
 
 def collate_fn_cuda(data):
     batch = zip(*data)
-    return tuple([torch.tensor(x).cuda() if len(x[0].size()) < 1 else pad_sequence(x, True).cuda() for x in batch])
+    batch_content_list = []
+    for x in batch:
+        sample = x[0]
+        if len(sample.size()) < 1: # for example, text classfication label
+            batch_content_list.append(torch.tensor(x).cuda())
+        elif len(sample.shape) == 1 or sample.nelement() == 0: # tensor with one dimension OR empty tensor 
+            batch_content_list.append(pad_sequence(x, True).cuda())
+        elif len(sample.shape) == 2: # tensor with two dimension
+            # find max sent length
+            max_width, max_hight = 0, 0
+            for sam in x:
+                if sam.shape[0] >= max_hight:
+                    max_hight = sam.shape[0]
+                if sam.shape[1] >= max_width:
+                    max_width = sam.shape[1]
+            # padding single tensor
+            temp = []
+            for i in range(len(x)):
+                sam = x[i]
+                pad_2d_shape = (0, max_width-sam.shape[1], 0, max_hight-sam.shape[0])
+                pad_sam = pad(sam, pad_2d_shape, "constant", 0)
+                temp.append(pad_sam)
+            # padding to batch
+            batch_content_list.append(pad_sequence(temp, True).cuda())
+    return tuple(batch_content_list)
 
 
 # 加载预训练词向量
@@ -329,3 +377,25 @@ def calulate_KL_Loss(feature1, feature2):
     kl_loss = kl_1 + kl_2
 
     return kl_loss
+
+
+#实例转tensor
+def instance2tensor_for_biaffine(instances, word_vocab, char_vocab, label_vocab, feature_config=[], max_word_len=20):
+    word_idxs,char_idxs,label_idxs,feature_idxs = [],[],[],[]
+    for instance in instances:
+        word_idx, char_idx, label_idx, feature_idx = [], [],[], []
+        for ins in instance[0]:
+            word_idx.append(word_vocab.get_id(ins))
+        for ins in instance[1]:
+            char_idx.append([char_vocab.get_id(i) for i in ins[:max_word_len]]+[0 for i in range(max_word_len-len(ins))])
+        for ins in instance[2]:
+            feature_idx.append([feature_config[i]['vocab'].get_id(ins[i]) for i in range(len(feature_config))])
+        # deal with biaffine label
+        label_matrix = instance[-1]
+        for i in range(len(label_matrix)):
+            label_idx.append([label_vocab.get_id(label_matrix[i][j]) for j in range(len(label_matrix[0]))])
+        word_idxs.append(torch.tensor(word_idx))
+        char_idxs.append(torch.tensor(char_idx))
+        label_idxs.append(torch.tensor(label_idx))
+        feature_idxs.append(torch.tensor(feature_idx))
+    return TensorDataSet(word_idxs, char_idxs, feature_idxs, label_idxs)

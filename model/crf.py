@@ -27,14 +27,15 @@ class CRF(nn.Module):
     def __init__(self, label_size, gpu):
         super(CRF, self).__init__()
         self.label_size = label_size
-        self.use_gpu = gpu
+        self.gpu_num = gpu
         init_trans = torch.zeros(self.label_size+2, self.label_size+2)
         init_trans[:, START] = -10000.0
         init_trans[STOP,:] = -10000.0
         init_trans[:,0] = -10000.0
         init_trans[0,:] = -10000.0
-        if self.use_gpu:
+        if self.gpu_num != "-1":
             init_trans = init_trans.cuda()
+            self.use_gpu = True
         self.transitions = nn.Parameter(init_trans)
 
     def _get_PZ(self, emit, mask):

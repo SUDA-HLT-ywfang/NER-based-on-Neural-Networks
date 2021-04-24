@@ -35,6 +35,7 @@ class Trainer():
             print("Wrong optimizer, please choose among SGD/Adam/BertAdam")
         self.epoch_num = config.epoch_num
         self.patience = config.patience
+        self.avg_batch_loss = config.avg_batch_loss
 
     def lr_decay(self, optimizer, epoch, decay_rate, init_lr):
         lr = init_lr/(1+decay_rate*epoch)
@@ -65,16 +66,15 @@ class Trainer():
             # torch.set_rng_state(prev_rng_state)
             for batch in traindata:
                 loss = self.network(batch)
-                total_loss += loss.item()
+                if self.avg_batch_loss:
+                    batch_size = batch[0].shape[0]
+                    loss = loss / batch_size
                 loss.backward()
                 if self.optimizer_name == 'adamw':
                     self.scheduler.step()
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
-                    self.network.zero_grad()
-                    continue
                 self.optimizer.step()
                 self.network.zero_grad()
+                total_loss += loss.item()
             end_time = time.time()
             print("training time: %d, loss: %.4f" % (end_time-begin_time, total_loss))
 

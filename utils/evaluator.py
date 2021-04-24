@@ -57,6 +57,32 @@ class Evaluator():
         return 'BIO'
 
 
+# 评价模块
+class Evaluator_for_Biaffine():
+    def __init__(self, label_vocab, batch_size=64):
+        self.batchsize_wheneval = batch_size
+        self.label_vocab = label_vocab
+
+    def evaluate(self, network, data):
+        non_entity_idx = self.label_vocab.get_id('O')
+        padding_idx = self.label_vocab.get_id('</pad>')
+        num_pred, num_gold, num_correct = 0, 0, 0
+        for batch in data:
+            label_chart_pred = network(batch)
+            label_chart_gold = batch[-1]
+            pred_mask = label_chart_pred.ne(non_entity_idx) & label_chart_pred.ne(padding_idx)
+            gold_mask = label_chart_gold.ne(non_entity_idx) & label_chart_gold.ne(padding_idx)
+            correct_mask = pred_mask & gold_mask
+            num_pred += pred_mask.sum().item()
+            num_gold += gold_mask.sum().item()
+            num_correct += (label_chart_pred.eq(label_chart_gold) & correct_mask).sum().item()
+        precision = num_correct / (num_pred + 1e-5)
+        recall = num_correct / (num_gold + 1e-5)
+        f1 = (2 * precision * recall) / (precision + recall + 1e-5)
+        print("gold: %d" % num_gold)
+        return 0, precision, recall, f1
+
+
 def classfication_accuracy(predict, gold):
     all_num = len(predict)
     right = 0

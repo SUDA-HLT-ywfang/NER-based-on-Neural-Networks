@@ -1,29 +1,30 @@
+import torch
 import torch.nn as nn
 from utils.utils import *
-from .partial_crf import Partial_CRF, Partial_CRF_Setinf
+import torch.nn.functional as F
 from .encoder import Encoder
 from .embedding import Embedding_Layer
 
 
 # 模型模块
-class BiLSTM_PartialCRF(nn.Module):
+class BiLSTM_MaxEnt(nn.Module):
     def __init__(self, data):
-        super(BiLSTM_PartialCRF, self).__init__()
+        super(BiLSTM_MaxEnt, self).__init__()
         self.word_embedding = Embedding_Layer(
-            vocab=data.word_vocab, emb_dim=data.word_emb_dim, pretrain_emb=data.pretrain_word_emb)
-        self.use_char = data.use_char
-        self.input_size = data.word_emb_dim
-        self.gpu = data.gpu
+            vocab=data.vocab_word, emb_dim=data.get("emb_dim_word"), pretrain_emb=data.get("emb_path_word"))
+        self.use_char = data.get("use_char")
+        self.input_size = data.get("emb_dim_word")
+        self.gpu = data.get("gpu")
         if self.use_char:
             self.char_encoder = Encoder(
-                feature_extractor=data.char_feature_extractor,
-                embedding_dim=data.char_emb_dim,
-                hidden_dim=data.char_hidden_dim
+                feature_extractor=data.get("char_model"),
+                embedding_dim=data.get("emb_dim_char"),
+                hidden_dim=data.get("hidden_dim_char")
             )
             self.char_embedding = Embedding_Layer(
-                vocab=data.char_vocab, emb_dim=data.char_emb_dim, pretrain_emb=data.pretrain_char_emb)
-            self.charemb_dropout = nn.Dropout(data.dropout)
-            self.input_size += data.char_hidden_dim
+                vocab=data.vocab_char, emb_dim=data.get("emb_dim_char"), pretrain_emb=None)
+            self.charemb_dropout = nn.Dropout(data.get("dropout_embedding"))
+            self.input_size += data.get("hidden_dim_char")
         self.feature_num = len(data.feature_config)
         self.feature_embeddings = nn.ModuleList()
         for idx in range(self.feature_num):
@@ -33,19 +34,18 @@ class BiLSTM_PartialCRF(nn.Module):
         self.word_bilstm = Encoder(
             feature_extractor='BiLSTM',
             embedding_dim=self.input_size,
-            hidden_dim=data.hidden_dim,
-            num_layers=data.lstm_layers
+            hidden_dim=data.get("hidden_dim_lstm"),
+            num_layers=data.get("lstm_layers")
         )
-        self.word_presentation_dropout = nn.Dropout(data.dropout)
-        self.lstmout_dropout = nn.Dropout(data.dropout)
-        self.hidden2tag = nn.Linear(data.hidden_dim, data.label_size+2)
-        self.crf = Partial_CRF(data.label_size, data.gpu)
-        # self.crf = Partial_CRF_Setinf(data.label_vocab, data.gpu)
+        self.word_presentation_dropout = nn.Dropout(data.get("dropout_embedding"))
+        self.lstmout_dropout = nn.Dropout(data.get("dropout_lstm"))
+        self.hidden2tag = nn.Linear(data.get("hidden_dim_lstm"), data.vocab_label.get_size())
+        self.criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="sum")
 
     # 根据输入，得到模型输出
     def forward(self, batch):
         word_idxs, char_idxs, feature_idxs, labels = batch
-        mask = word_idxs.gt(0)
+        mask = labels.gt(0)
         sent_lengths = mask.sum(1)
         words_present = self.word_embedding(word_idxs)
         """
@@ -86,7 +86,7 @@ class BiLSTM_PartialCRF(nn.Module):
             char_feature = self.char_encoder.get_last_hidden(sorted_char_input, sorted_char_lengths4train)
             # recover
             char_feature_pad = torch.zeros(filtered_size, char_feature.size(1))
-            if self.gpu:
+            if self.gpu != "-1":
                 char_feature_pad = char_feature_pad.cuda()
             char_feature_final = torch.cat((char_feature, char_feature_pad), 0)
             _, char_recover = torch.sort(char_indices, dim=0, descending=False)
@@ -101,12 +101,12 @@ class BiLSTM_PartialCRF(nn.Module):
         outputs = self.hidden2tag(lstm_out_drop)
 
         if self.training:
-            loss = self.crf.neg_log_likelihood_loss(outputs, sorted_mask, sorted_labels)
+            out = outputs.view(-1, outputs.shape[-1])
+            loss = self.criterion(out, sorted_labels.view(-1))
+
             return loss
         else:
-            tag_seq = self.crf._viterbi_decode(feats=outputs, mask=sorted_mask)
-            # recover
+            pred_tag = torch.argmax(outputs, dim=-1)
             _, recover = torch.sort(indices, dim=0, descending=False)
-            mask_raw = sorted_mask[recover]
-            tag_seq = tag_seq[recover]
-            return mask_raw, tag_seq
+            
+            return labels.gt(0), pred_tag[recover]

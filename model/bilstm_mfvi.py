@@ -2,15 +2,15 @@ import torch
 import torch.nn as nn
 from utils.utils import *
 import torch.nn.functional as F
-from .crf import CRF
+from .mfvi import MFVI
 from .encoder import Encoder
 from .embedding import Embedding_Layer
 
 
 # 模型模块
-class BiLSTM_CRF(nn.Module):
+class BiLSTM_MFVI(nn.Module):
     def __init__(self, data):
-        super(BiLSTM_CRF, self).__init__()
+        super(BiLSTM_MFVI, self).__init__()
         self.word_embedding = Embedding_Layer(
             vocab=data.vocab_word, emb_dim=data.get("emb_dim_word"), pretrain_emb=data.get("emb_path_word"))
         self.use_char = data.get("use_char")
@@ -40,8 +40,13 @@ class BiLSTM_CRF(nn.Module):
         )
         self.word_presentation_dropout = nn.Dropout(data.get("dropout_embedding"))
         self.lstmout_dropout = nn.Dropout(data.get("dropout_lstm"))
-        self.hidden2tag = nn.Linear(data.get("hidden_dim_lstm"), data.vocab_label.get_size()+2)
-        self.crf = CRF(data.vocab_label.get_size(), data.get("gpu"))
+        self.hidden2tag = nn.Linear(data.get("hidden_dim_lstm"), data.vocab_label.get_size())
+        self.mfvi = MFVI(label_size=data.vocab_label.get_size(),
+                         gpu=self.gpu, 
+                         window_size=data.get("mfvi_window_size"), 
+                         iterations=data.get("mfvi_iterations"), 
+                         add_start_end=data.get("mfvi_add_start_end"))
+        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=0, reduction="sum")
 
     # 根据输入，得到模型输出
     def forward(self, batch):
@@ -101,11 +106,14 @@ class BiLSTM_CRF(nn.Module):
         lstm_out_drop = self.lstmout_dropout(encoder_out)
         outputs = self.hidden2tag(lstm_out_drop)
 
+        scores = self.mfvi.forward(unary_score=outputs, mask=sorted_mask)
         if self.training:
-            loss = self.crf.neg_log_likelihood_loss(outputs, sorted_mask, sorted_labels)
+            scores = scores.view(-1, scores.shape[-1])
+            sorted_labels = sorted_labels.view(-1)
+            loss = self.criterion(scores, sorted_labels)
             return loss
         else:
-            tag_seq = self.crf._viterbi_decode(feats=outputs, mask=sorted_mask)
+            tag_seq = torch.argmax(scores, dim=2)
             # recover
             _, recover = torch.sort(indices, dim=0, descending=False)
             mask_raw = sorted_mask[recover]
