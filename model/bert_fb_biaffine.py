@@ -5,18 +5,24 @@ from utils.utils import *
 
 from .biaffine import Biaffine
 from .embedding import Embedding_Layer
+from .bert_encoder import Bert_Embedding
 from .encoder import Encoder
 
 
 # 模型模块
-class BiLSTM_Biaffine(nn.Module):
+class BiLSTM_Biaffine_BERT_fb(nn.Module):
     def __init__(self, data):
-        super(BiLSTM_Biaffine, self).__init__()
+        super(BiLSTM_Biaffine_BERT_fb, self).__init__()
+        # bert part
+        self.bert_embedding = Bert_Embedding(bertpath=data.get("bert_path"), 
+                                             bert_layer=4, 
+                                             bert_dim=data.get("bert_dim"),
+                                             freeze=True)
         # embedding part
         self.word_embedding = Embedding_Layer(
             vocab=data.vocab_word, emb_dim=data.get("emb_dim_word"), pretrain_emb=data.get("emb_path_word"))
         self.use_char = data.get("use_char")
-        self.input_size = data.get("emb_dim_word")
+        self.input_size = data.get("emb_dim_word") + data.get("bert_dim")
         self.gpu = data.get("gpu")
         if self.use_char:
             self.char_encoder = Encoder(
@@ -55,7 +61,7 @@ class BiLSTM_Biaffine(nn.Module):
 
     # 根据输入，得到模型输出
     def forward(self, batch):
-        word_idxs, char_idxs, feature_idxs, labels = batch
+        word_idxs, char_idxs, feature_idxs, subword_idxs, subword_head_mask, labels = batch
         mask = word_idxs.gt(0)
         sent_lengths = mask.sum(1)
         words_present = self.word_embedding(word_idxs)
@@ -98,9 +104,14 @@ class BiLSTM_Biaffine(nn.Module):
             char_feature_recover = char_feature_final[char_recover]
             char_feature_final = char_feature_recover.view(batchsize, max_sent_length, -1)
             char_feature_final_align_with_word = char_feature_final[indices]
-            sorted_words_present = torch.cat((sorted_words_present, char_feature_final_align_with_word), dim=2)
+            # sorted_words_present = torch.cat((sorted_words_present, char_feature_final_align_with_word), dim=2)
+        # bert embedding
+        bert_embeddings = self.bert_embedding(subword_idxs=subword_idxs,
+                                              token_starts_masks=subword_head_mask,
+                                              strategy="sum_last_x")
         # model forward
-        word_embeddings_drop = self.dropout_embedding(sorted_words_present)
+        sorted_words_rep = torch.cat((sorted_words_present, char_feature_final_align_with_word, bert_embeddings[indices]), dim=-1)
+        word_embeddings_drop = self.dropout_embedding(sorted_words_rep)
         encoder_out = self.word_bilstm(word_embeddings_drop, sorted_sentlength)
         lstm_out_drop = self.dropout_lstm(encoder_out)
         

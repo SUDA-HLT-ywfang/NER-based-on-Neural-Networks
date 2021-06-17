@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from pytorch_transformers import BertModel
+from transformers import BertModel
 from torch.nn.utils.rnn import pad_sequence
 
 
@@ -43,7 +43,7 @@ class Bert_Embedding(nn.Module):
         if freeze:
             self.freeze()
 
-    def forward(self, subword_idxs, subword_mask, token_starts_masks, strategy):
+    def forward(self, subword_idxs, token_starts_masks, strategy):
         self.eval()
         sent_lengths = token_starts_masks.sum(dim=1)
         mask = subword_idxs.gt(0)
@@ -53,10 +53,10 @@ class Bert_Embedding(nn.Module):
             attention_mask=mask
         )
         bert_outs = hidden_states[len(hidden_states)-self.bert_layer:len(hidden_states)]
-        if strategy == 'concat_last_4':
+        if strategy == 'concat_last_x':
             concat_bert_outs = torch.cat(bert_outs, dim=2)
             final_dim = self.bert_layer*self.bert_dim
-        elif strategy == 'sum_last_4':
+        elif strategy == 'sum_last_x':
             concat_bert_outs = sum(bert_outs)
             final_dim = self.bert_dim
         else:

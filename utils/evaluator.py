@@ -79,7 +79,6 @@ class Evaluator_for_Biaffine():
         precision = num_correct / (num_pred + 1e-5)
         recall = num_correct / (num_gold + 1e-5)
         f1 = (2 * precision * recall) / (precision + recall + 1e-5)
-        print("gold: %d" % num_gold)
         return 0, precision, recall, f1
 
 

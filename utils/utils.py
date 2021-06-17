@@ -399,3 +399,24 @@ def instance2tensor_for_biaffine(instances, word_vocab, char_vocab, label_vocab,
         label_idxs.append(torch.tensor(label_idx))
         feature_idxs.append(torch.tensor(feature_idx))
     return TensorDataSet(word_idxs, char_idxs, feature_idxs, label_idxs)
+
+
+def instance2tensor_for_biaffine_with_bert(instances, word_vocab, char_vocab, label_vocab, bert_dataset, feature_config=[], max_word_len=20):
+    word_idxs,char_idxs,label_idxs,feature_idxs = [],[],[],[]
+    bert_idxs, subword_head_masks = [], []
+    for i, instance in enumerate(instances):
+        word_idx, char_idx, label_idx, feature_idx = [], [],[], []
+        for ins in instance[0]:
+            word_idx.append(word_vocab.get_id(ins))
+        for ins in instance[1]:
+            char_idx.append([char_vocab.get_id(i) for i in ins[:max_word_len]]+[0 for i in range(max_word_len-len(ins))])
+        for ins in instance[2]:
+            feature_idx.append([feature_config[i]['vocab'].get_id(ins[i]) for i in range(len(feature_config))])
+        word_idxs.append(torch.tensor(word_idx))
+        char_idxs.append(torch.tensor(char_idx))
+        feature_idxs.append(torch.tensor(feature_idx))
+
+        bert_idxs.append(bert_dataset[i][0])
+        subword_head_masks.append(bert_dataset[i][1])
+        label_idxs.append(bert_dataset[i][2])
+    return TensorDataSet(word_idxs, char_idxs, feature_idxs, bert_idxs, subword_head_masks, label_idxs)

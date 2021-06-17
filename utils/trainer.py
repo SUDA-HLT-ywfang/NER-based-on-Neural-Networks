@@ -70,9 +70,9 @@ class Trainer():
                     batch_size = batch[0].shape[0]
                     loss = loss / batch_size
                 loss.backward()
+                self.optimizer.step()
                 if self.optimizer_name == 'adamw':
                     self.scheduler.step()
-                self.optimizer.step()
                 self.network.zero_grad()
                 total_loss += loss.item()
             end_time = time.time()

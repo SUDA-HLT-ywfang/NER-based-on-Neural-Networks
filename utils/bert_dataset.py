@@ -61,41 +61,30 @@ class BertDataSet(data.Dataset):
         return bert_sent, real_tag_seq, subword_start_masks, subword_masks
 
 
-class BertDataSet_For_partial(data.Dataset):
+class BertDataSet_Biaffine(data.Dataset):
     def __init__(self, bert_vocab_path, corpus, label_vocab):
         self.tokenizer = BertTokenizer.from_pretrained(pretrained_model_name_or_path=bert_vocab_path, do_lower_case=False)
         self.sents = [g[0] for g in corpus]
         self.labels = [g[-1] for g in corpus]
-        self.labelvocab = label_vocab
+        self.label_vocab = label_vocab
 
     def __len__(self):
         return len(self.sents)
 
     def __getitem__(self, index):
-        sent, tag_seq = self.sents[index], self.labels[index]
+        sent, tag_matrix = self.sents[index], self.labels[index]
 
         sent = ['[CLS]'] + sent + ['[SEP]']
 
-        new_sent, subword_start_masks, subword_masks = self.convert_tokens_to_subtokenids(sent)
+        new_sent, real_tagseq, subword_start_masks = self.convert_tokens_to_subtokenids(sent, tag_matrix)
 
-        real_tagseq = []
-        for label in tag_seq:
-            if label == ['UNK']:
-                label_mask = [1 for _ in range(self.labelvocab.get_size())]
-                label_mask.extend([0, 0])
-            else:
-                label_mask = [0 for _ in range(self.labelvocab.get_size()+2)]
-                for possible_label in label:
-                    label_mask[self.labelvocab.get_id(possible_label)] = 1
-            real_tagseq.append(label_mask)
-        sentence_mask = [1 for _ in range(len(tag_seq))]
-        return torch.tensor(new_sent), torch.tensor(subword_start_masks, dtype=torch.uint8), \
-            torch.tensor(subword_masks, dtype=torch.uint8), torch.tensor(real_tagseq), torch.tensor(sentence_mask)
+        return torch.tensor(new_sent), torch.tensor(subword_start_masks, dtype=torch.bool), torch.tensor(real_tagseq)
 
-    def convert_tokens_to_subtokenids(self, tokens):
-        bert_sent, subword_start_masks, subword_masks = [], [], []
+    def convert_tokens_to_subtokenids(self, tokens, label_matrix):
+        bert_sent, subword_start_masks, real_tag_matrix = [], [], []
 
         for w in tokens:
+            # subword sequence
             if w in ('[CLS]', '[SEP]'):
                 sub_tokens = [w]
             else:
@@ -104,71 +93,17 @@ class BertDataSet_For_partial(data.Dataset):
                     sub_tokens = ['[UNK]']
             token_idx = self.tokenizer.convert_tokens_to_ids(sub_tokens)
             bert_sent += token_idx
-
-            # subword mask
-            if w in ('[CLS]', '[SEP]'):
-                subword_masks += [0]
-            else:
-                subword_masks += [1]*len(sub_tokens)
             # subword head mask
             if w in ('[CLS]', '[SEP]'):
                 subword_start_masks += [0]
             else:
                 subword_start_masks += [1] + [0]*(len(sub_tokens)-1)
+        # label matrix
+        for i in range(len(label_matrix)):
+            real_tag_matrix.append([self.label_vocab.get_id(label_matrix[i][j]) for j in range(len(label_matrix[0]))])
+        # check length
         assert len(bert_sent) == len(subword_start_masks)
-        return bert_sent, subword_start_masks, subword_masks
-
-
-class BertDataSet_for_unlabel(data.Dataset):
-    def __init__(self, bert_vocab_path, corpus, label_vocab):
-        self.tokenizer = BertTokenizer.from_pretrained(pretrained_model_name_or_path=bert_vocab_path,
-                                                       do_lower_case=False)
-        self.sents = [g[0] for g in corpus]
-        self.labels = [g[-1] for g in corpus]
-        self.labelvocab = label_vocab
-
-    def __len__(self):
-        return len(self.sents)
-
-    def __getitem__(self, index):
-        raw_sent, tag_seq = self.sents[index], self.labels[index]
-
-        sent = ['[CLS]'] + raw_sent + ['[SEP]']
-        tag_seq = [self.labelvocab.pad] + tag_seq + [self.labelvocab.pad]
-
-        new_sent, real_tagseq, subword_start_masks, subword_masks = self.convert_tokens_to_subtokenids(sent, tag_seq)
-
-        return torch.tensor(new_sent), torch.tensor(subword_start_masks, dtype=torch.uint8), \
-            torch.tensor(subword_masks, dtype=torch.uint8), raw_sent, torch.tensor(real_tagseq)
-
-    def convert_tokens_to_subtokenids(self, tokens, labels):
-        bert_sent, subword_start_masks, real_tag_seq, subword_masks = [], [], [], []
-
-        for w, t in zip(tokens, labels):
-            if w in ('[CLS]', '[SEP]'):
-                sub_tokens = [w]
-            else:
-                sub_tokens = self.tokenizer.tokenize(w)
-                if len(sub_tokens) == 0:
-                    sub_tokens = ['[UNK]']
-            token_idx = self.tokenizer.convert_tokens_to_ids(sub_tokens)
-            bert_sent += token_idx
-
-            # subword mask
-            if w in ('[CLS]', '[SEP]'):
-                subword_masks += [0]
-            else:
-                subword_masks += [1] * len(sub_tokens)
-            # subword head mask
-            if w in ('[CLS]', '[SEP]'):
-                subword_start_masks += [0]
-            else:
-                subword_start_masks += [1] + [0] * (len(sub_tokens) - 1)
-            # real tag seq
-            if w not in ('[CLS]', '[SEP]'):
-                real_tag_seq.append(self.labelvocab.get_id(t))
-        assert len(bert_sent) == len(subword_start_masks)
-        return bert_sent, real_tag_seq, subword_start_masks, subword_masks
+        return bert_sent, real_tag_matrix, subword_start_masks
 
 
 def _is_whitespace(char):

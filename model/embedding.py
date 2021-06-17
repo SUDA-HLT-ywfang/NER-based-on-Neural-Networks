@@ -1,5 +1,6 @@
+import torch
 import torch.nn as nn
-from utils.utils import *
+from utils.utils import load_pretrain_embedding, random_init_embedding
 
 
 class Embedding_Layer(nn.Module):
